@@ -1,27 +1,8 @@
 name: Database restore
 
-# Manual only: Actions -> "Database restore" -> "Run workflow".
 on:
   workflow_dispatch:
     inputs:
-      project:
-        description: "Project to restore: name or prefix from BACKUP_PROJECTS (e.g. hygieia)"
-        required: true
-        type: string
-      date:
-        description: "Date of the backup, YYYY-MM-DD"
-        required: true
-        type: string
-      time:
-        description: "Time of the backup that day, HHMMSS (empty = latest of that day)"
-        required: false
-        type: string
-        default: ""
-      target:
-        description: "Restore into another project (empty = the same project)"
-        required: false
-        type: string
-        default: ""
       dry_run:
         description: "Dry run: restore and verify, then roll back (changes nothing)"
         required: true
@@ -45,6 +26,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
+      - name: Check RESTORE_PROJECT and RESTORE_DATE variables
+        env:
+          RESTORE_PROJECT: ${{ vars.RESTORE_PROJECT }}
+          RESTORE_DATE: ${{ vars.RESTORE_DATE }}
+        run: |
+          if [ -z "$RESTORE_PROJECT" ] || [ -z "$RESTORE_DATE" ]; then
+            echo "::error::Set the repository variables RESTORE_PROJECT and RESTORE_DATE (Settings -> Secrets and variables -> Actions -> Variables)."
+            exit 1
+          fi
+          echo "Restoring: $RESTORE_PROJECT, backup of $RESTORE_DATE"
+
       - name: Check confirmation for a real restore
         if: ${{ !inputs.dry_run }}
         env:
@@ -79,12 +71,11 @@ jobs:
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           BACKUP_PROJECTS: ${{ vars.BACKUP_PROJECTS }}
-          # Inputs are passed as environment variables (read by supabase_restore.py),
-          # never pasted into the shell command.
-          RESTORE_PROJECT: ${{ inputs.project }}
-          RESTORE_DATE: ${{ inputs.date }}
-          RESTORE_TIME: ${{ inputs.time }}
-          RESTORE_TARGET: ${{ inputs.target }}
+          # Read by supabase_restore.py, same names as in .env.
+          RESTORE_PROJECT: ${{ vars.RESTORE_PROJECT }}
+          RESTORE_DATE: ${{ vars.RESTORE_DATE }}
+          RESTORE_TIME: ${{ vars.RESTORE_TIME }}
+          RESTORE_TARGET: ${{ vars.RESTORE_TARGET }}
           DRY_RUN: ${{ inputs.dry_run }}
         run: |
           if [ "$DRY_RUN" = "true" ]; then
