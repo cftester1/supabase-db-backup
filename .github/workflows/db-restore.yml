@@ -1,0 +1,94 @@
+name: Database restore
+
+# Manual only: Actions -> "Database restore" -> "Run workflow".
+on:
+  workflow_dispatch:
+    inputs:
+      project:
+        description: "Project to restore: name or prefix from BACKUP_PROJECTS (e.g. hygieia)"
+        required: true
+        type: string
+      date:
+        description: "Date of the backup, YYYY-MM-DD"
+        required: true
+        type: string
+      time:
+        description: "Time of the backup that day, HHMMSS (empty = latest of that day)"
+        required: false
+        type: string
+        default: ""
+      target:
+        description: "Restore into another project (empty = the same project)"
+        required: false
+        type: string
+        default: ""
+      dry_run:
+        description: "Dry run: restore and verify, then roll back (changes nothing)"
+        required: true
+        type: boolean
+        default: true
+      confirm:
+        description: "For a REAL restore (dry run unticked) type RESTORE"
+        required: false
+        type: string
+        default: ""
+
+concurrency:
+  group: db-restore
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check confirmation for a real restore
+        if: ${{ !inputs.dry_run }}
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          if [ "$CONFIRM" != "RESTORE" ]; then
+            echo "::error::Real restore not confirmed: type RESTORE in the 'confirm' field (or tick dry run)."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+
+      - name: Install PostgreSQL 17 client
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+            https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-17
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python packages
+        run: pip install requests python-dotenv
+
+      - name: Restore database
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          BACKUP_PROJECTS: ${{ vars.BACKUP_PROJECTS }}
+          # Inputs are passed as environment variables (read by supabase_restore.py),
+          # never pasted into the shell command.
+          RESTORE_PROJECT: ${{ inputs.project }}
+          RESTORE_DATE: ${{ inputs.date }}
+          RESTORE_TIME: ${{ inputs.time }}
+          RESTORE_TARGET: ${{ inputs.target }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          if [ "$DRY_RUN" = "true" ]; then
+            python supabase_restore.py --yes --dry-run
+          else
+            python supabase_restore.py --yes
+          fi
