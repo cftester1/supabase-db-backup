@@ -1,0 +1,47 @@
+name: Database backup
+
+on:
+  schedule:
+    - cron: "0 21 * * *"   # daily 21:00 UTC = 02:00 Pakistan time (UTC+5)
+  workflow_dispatch:         # "Run workflow" button for a manual run
+
+concurrency:
+  group: db-backup
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install PostgreSQL 17 client
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+            https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-17
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python packages
+        run: pip install requests python-dotenv
+
+      - name: Back up databases and purge copies older than 7 days
+        run: python supabase_backup.py
+        env:
+
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          # Repository variable (not secret), e.g.
+          #   Hygieia Database=hygieia, Saxon Weald=saxon-weald, Pulse=pulse
+          BACKUP_PROJECTS: ${{ vars.BACKUP_PROJECTS }}

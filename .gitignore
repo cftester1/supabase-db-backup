@@ -1,0 +1,14 @@
+# Secrets: never commit
+.env
+.env.*
+databases.txt
+*.old
+*.bak
+
+# Backups and Python cache
+*.sql
+*.sql.gz
+__pycache__/
+
+# Local snapshots
+checkpoints/
